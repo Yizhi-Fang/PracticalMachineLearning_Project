@@ -1,0 +1,100 @@
+Weight Lifting Exercises
+==============================================
+
+*Yizhi Fang*
+
+## Introduction
+
+In this report, data is collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants(Velloso et al., 2013). They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal is to predict the manner in which they did the exercise (indicated in variable ```classe```). More information and data resource: <http://groupware.les.inf.puc-rio.br/har>
+
+Training data are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+Testing data are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+## Data cleaning
+
+```{r chunkSetup, echo = F}
+knitr:: opts_chunk$set(echo = T, cache = T)
+```
+
+```{r}
+library(caret)
+library(randomForest)
+library(ggplot2)
+```
+
+```{r loadData}
+if (!file.exists("./pml-training.csv")){
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="./pml-training.csv", method="curl")
+}
+trainingRaw <- read.csv("./pml-training.csv")
+
+if (!file.exists("./pml-testing.csv")){
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile="./pml-testing.csv", method="curl")
+}
+testingRaw <- read.csv("./pml-testing.csv")
+```
+
+There're `r dim(trainingRaw)[1]` observations and `r dim(trainingRaw)[2]` variables in the training data and some of them have missing values because there're only `r sum(complete.cases(trainingRaw))` complete cases.
+
+First, we remove those variables that have missing values and then some that don't contribute to the model.
+
+```{r cleaningData}
+temp <- trainingRaw[, colSums(is.na(trainingRaw)) == 0]
+training <- temp[, !grepl("^X|timestamp|window$", names(temp))]
+dim(training)
+
+temp <- testingRaw[, colSums(is.na(testingRaw)) == 0]
+testing <- temp[, !grepl("^X|timestamp|window$", names(temp))]
+dim(testing)
+```
+
+It looks like that testing data has more variables with missing values. Therefore, we here only remain the match variables in both data sets for consistancy. However, testing data doesn't have ```classe``` variable (the outcome of the predictions) because of its `r length(testingRaw$classe)` length.
+
+```{r mathingData}
+classe <- training$classe
+both <- intersect(names(training), names(testing))
+
+trainingFinal <- training[, both]
+trainingFinal$classe <- classe
+
+testingFinal <- testing[, both]
+```
+
+## Data training
+
+In this report, we decide to use **Random Forest** algorithm that combines resampling of both data and variables. First, we need to split the training data into ```trainingDP``` and ```testingDP```.
+
+```{r splitData}
+set.seed(33893)
+inTrain <- createDataPartition(trainingFinal$classe, p=0.75, list=F)
+trainingDP <- trainingFinal[inTrain, ]
+testingDP <- trainingFinal[-inTrain, ]
+```
+
+However, the disadvantage of this method is that it can easily overfit. Therefore, we train the data with **Random Forest** with 5-fold cross-validation control.
+
+```{r training}
+modelFit <- train(classe ~ ., data=trainingDP, trControl=trainControl(method="cv", 5), method="rf", ntree=200)
+
+modelFit
+plot(modelFit)
+```
+
+Now we can estimate the performance of the model via the ```testingDP```.
+
+```{r performanceTest}
+predictions <- predict(modelFit, testingDP)
+confusionMatrix(predictions, testingDP$classe)
+```
+
+From the confusion matrix analysis, the overall accuracy is 99.45% and the out-of-sample error is 0.55%, which tells us the chosen **Random Forest** algorithm predicts our ```testingDP``` well.
+
+## Prediction
+
+Finally, we could estimate the testing data with the chosen model.
+
+```{r prediction}
+result <- predict(modelFit, testingFinal)
+data.frame(user_name=testingFinal$user_name, preformance=result)
+```
